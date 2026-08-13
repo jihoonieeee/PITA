@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+
+# Project-generated Inspect datasets
+dataset/single_turn_converted.jsonl
+dataset/refinement_converted.jsonl
+
+/logs

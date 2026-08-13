@@ -1,0 +1,163 @@
+{
+  "chatbots": {
+    "chatgpt": {
+      "url": "https://chatgpt.com/",
+      "name": "ChatGPT",
+      "chat_input": {
+        "selector": "#prompt-textarea",
+        "description": "Contenteditable chat input (div with aria-label 'Chat with ChatGPT')"
+      },
+      "response_selectors": [
+        {
+          "selector": "[data-message-author-role=\"assistant\"]",
+          "description": "Assistant message container (most specific)",
+          "priority": 1
+        },
+        {
+          "selector": "div.markdown",
+          "description": "Rendered assistant markdown",
+          "priority": 2
+        },
+        {
+          "selector": "div.prose",
+          "description": "Prose container fallback",
+          "priority": 3
+        }
+      ],
+      "toggle_button": {
+        "selector": null,
+        "description": "No toggle needed"
+      },
+      "consent_banner": {
+        "selector": null,
+        "description": "No consent banner"
+      },
+      "reset_button": {
+        "selector": "a[aria-label=\"New chat\"]",
+        "fallback": "reload",
+        "description": "Sidebar 'New chat' link. Matches exactly one element; the a[data-testid='create-new-chat-button'] variant matches two and its first match is click-intercepted by an SVG icon. Reload alone is NOT a valid reset here: after the first prompt the URL becomes /c/<id> and reloading restores the conversation."
+      },
+      "detected_by": "manual-probe",
+      "validated": true
+    },
+    "gemini": {
+      "url": "https://gemini.google.com/app",
+      "name": "Gemini",
+      "chat_input": {
+        "selector": "[aria-label=\"Enter a prompt for Gemini\"]",
+        "description": "Quill rich-text contenteditable (div.ql-editor, role=textbox). Routed via get_by_label. Auto-detector misses this (contenteditable not on main-page heuristic path); confirmed via manual probe."
+      },
+      "response_selectors": [
+        {
+          "selector": ".model-response-text",
+          "description": "Model response text (clean, no 'Gemini said' prefix)",
+          "priority": 1
+        },
+        {
+          "selector": "message-content",
+          "description": "Response message-content custom element",
+          "priority": 2
+        },
+        {
+          "selector": ".markdown",
+          "description": "Rendered markdown body",
+          "priority": 3
+        }
+      ],
+      "toggle_button": {
+        "selector": null,
+        "description": "No toggle needed"
+      },
+      "consent_banner": {
+        "selector": null,
+        "description": "No consent banner"
+      },
+      "reset_button": {
+        "selector": "a[aria-label=\"New chat\"]:has-text(\"New chat\")",
+        "confirm_selector": "[role=\"dialog\"] button:has-text(\"New chat\")",
+        "fallback": "reload",
+        "description": "Scenario 3 (confirm dialog): click the sidebar 'New chat' link, then confirm 'New chat' in the 'Clear current chat & create new one?' dialog. Detected 2026-06-03."
+      },
+      "detected_by": "manual-probe",
+      "validated": true,
+      "notes": "Input has aria-label 'Enter a prompt for Gemini', role=textbox (Quill div.ql-editor.new-input-ui). Reset flow confirmed end-to-end: clicking the sidebar 'New chat' link opens a 'Clear current chat & create new one?' dialog; confirm button is [role='dialog'] button:has-text('New chat'). Works fully unauthenticated (no sign-in required to chat). Detected 2026-07-08."
+    },
+    "claude": {
+      "url": "https://claude.ai/new",
+      "name": "Claude",
+      "chat_input": {
+        "selector": "div.ProseMirror[contenteditable='true']",
+        "description": "Tiptap/ProseMirror contenteditable chat input"
+      },
+      "response_selectors": [
+        {
+          "selector": ".standard-markdown, .progressive-markdown",
+          "description": "Full rendered message body for one assistant turn (excludes sr-only thinking-summary header); one element per turn so taking the last is correct",
+          "priority": 1
+        },
+        {
+          "selector": "[data-is-streaming=\"false\"]",
+          "description": "Completed assistant turn container (fallback; includes extra thinking-summary text mixed in)",
+          "priority": 2
+        },
+        {
+          "selector": ".font-claude-response-body",
+          "description": "BROKEN for multi-paragraph replies: matches one <p> PER PARAGRAPH across the ENTIRE conversation history, not scoped to the current turn, so picking the last element only returns the final sentence of the latest reply. Kept as last-resort fallback only.",
+          "priority": 3
+        }
+      ],
+      "toggle_button": {
+        "selector": null,
+        "description": "No toggle needed (panel always available)"
+      },
+      "consent_banner": {
+        "selector": null,
+        "description": "No consent banner"
+      },
+      "reset_button": {
+        "selector": "a[aria-label='Home']",
+        "fallback": "reload",
+        "description": "Claude logo link (href=/new) navigates to a fresh chat; more reliable than reload() which just refreshes the current chat URL (e.g. /chat/<id>) without starting a new conversation"
+      },
+      "is_iframe": false,
+      "is_shadow_dom": false,
+      "detected_by": "manual (auto-detect failed on decoy iframe; real input is main-page ProseMirror div)",
+      "validated": true,
+      "context": "AI chatbot"
+    },
+    "claude-docs": {
+      "url": "https://code.claude.com/docs/en/overview",
+      "name": "claude-docs",
+      "chat_input": {
+        "selector": "[aria-label=\"Ask a question...\"]",
+        "description": "Chat input"
+      },
+      "response_selectors": [
+        {
+          "selector": "#chat-content .prose",
+          "description": "Assistant response markdown container. #chat-content alone also matches the user's own echoed message bubble (no 'prose' class), concatenating it into the captured response; scoping to .prose isolates just the rendered assistant reply.",
+          "priority": 1
+        }
+      ],
+      "toggle_button": {
+        "selector": null,
+        "description": "Toggle"
+      },
+      "consent_banner": {
+        "selector": null,
+        "description": "Consent"
+      },
+      "reset_button": {
+        "selector": "[aria-label=\"Clear chat history\"]",
+        "fallback": "reload",
+        "description": "New chat / reset button (falls back to page reload)"
+      },
+      "detected_by": "manual-probe",
+      "validated": true
+    }
+  },
+  "metadata": {
+    "last_updated": "2026-08-13T17:50:49.422404",
+    "detection_method": "auto-investigative"
+  }
+}
