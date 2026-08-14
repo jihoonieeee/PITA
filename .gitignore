@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .venv/
+.vscode/
 
 # Project-generated Inspect datasets
 dataset/single_turn_converted.jsonl
