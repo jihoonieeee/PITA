@@ -1,4 +1,4 @@
-# PITA (Prompt Injection Test Automation) for AI Chatbots
+# [IN PROGRESS} PITA (Prompt Injection Test Automation) for AI Chatbots
 
 PITA is a tool for probing AI chatbots with adversarial prompts and security tests. It uses [Inspect AI](https://inspect.aisi.org.uk/) with real browser automation through Chrome DevTools Protocol (CDP) and Playwright.
 
