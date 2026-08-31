@@ -1,9 +1,11 @@
 """
 Convert an Inspect AI eval log (.json or .eval) to CSV for easy review.
 
-Works for single-turn and refinement logs, and both file formats.
+Works for single-turn, refinement, and multi-turn logs, and both file formats.
 - Single-turn: one row per sample.
 - Refinement:  one row per iteration (_iterations.csv) +
+               one summary row per sample (_summary.csv).
+- Multi-turn:  one row per round (_rounds.csv) +
                one summary row per sample (_summary.csv).
 
 Usage:
@@ -22,6 +24,21 @@ Refinement iteration columns:
 Refinement summary columns:
     sample_id, type, seed_prompt, final_grade, score,
     bypass_iteration, best_closeness, total_iterations, explanation
+
+Multi-turn round columns:
+    sample_id, type, round, phase, techniques, move, move_reasoning,
+    prompt, chatbot_response,
+    progress, grade, score, closeness,
+    reasoning, validation_errors
+    (`techniques` is a "+"-joined multi-label — split on "+" to count individual
+     techniques; `phase` is one of open/elaborate/converge; `validation_errors`
+     is non-empty only when the attacker's own output failed validation and a
+     deterministic fallback prompt was substituted for that round. The lineage's
+     `next_move` is not exported — it is the next row's phase/techniques/move.)
+
+Multi-turn summary columns:
+    sample_id, type, seed_prompt, final_grade, score,
+    bypass_round, best_closeness, total_rounds, explanation
 """
 
 import argparse
@@ -30,10 +47,10 @@ import json
 import sys
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # Load data from .json or .eval
 # ---------------------------------------------------------------------------
+
 
 def load_data(path: Path) -> dict:
     """Load eval data from a .json or .eval file."""
@@ -59,7 +76,16 @@ def _convert_eval_to_json(eval_path: Path) -> Path:
 
     print(f"Converting {eval_path.name} to JSON...")
     result = subprocess.run(
-        ["inspect", "log", "convert", "--to", "json", "--output-dir", str(output_dir), str(eval_path)],
+        [
+            "inspect",
+            "log",
+            "convert",
+            "--to",
+            "json",
+            "--output-dir",
+            str(output_dir),
+            str(eval_path),
+        ],
         capture_output=True,
         text=True,
     )
@@ -80,13 +106,16 @@ def _convert_eval_to_json(eval_path: Path) -> Path:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def extract_prompt(input_field) -> str:
     if isinstance(input_field, list):
         for msg in input_field:
             if isinstance(msg, dict) and msg.get("role") == "user":
                 content = msg.get("content", "")
                 if isinstance(content, list):
-                    return " ".join(p.get("text", "") for p in content if isinstance(p, dict))
+                    return " ".join(
+                        p.get("text", "") for p in content if isinstance(p, dict)
+                    )
                 return str(content)
     return str(input_field)
 
@@ -96,7 +125,9 @@ def extract_response(messages) -> str:
         if isinstance(msg, dict) and msg.get("role") == "assistant":
             content = msg.get("content", "")
             if isinstance(content, list):
-                return " ".join(p.get("text", "") for p in content if isinstance(p, dict))
+                return " ".join(
+                    p.get("text", "") for p in content if isinstance(p, dict)
+                )
             return str(content)
     return ""
 
@@ -104,11 +135,15 @@ def extract_response(messages) -> str:
 def detect_mode(samples: list) -> str:
     for s in samples[:5]:
         scores = s.get("scores") or {}
+        if "multi_turn_scorer" in scores:
+            return "multi_turn"
         if "refinement_scorer" in scores:
             return "refinement"
         lineage = (s.get("metadata") or {}).get("lineage") or []
         if lineage:
-            return "refinement"
+            # Older logs without a "scores" entry yet: tell modes apart by
+            # which key their lineage entries use ("round" vs "iteration").
+            return "multi_turn" if "round" in lineage[0] else "refinement"
     return "single_turn"
 
 
@@ -116,7 +151,16 @@ def detect_mode(samples: list) -> str:
 # Single-turn
 # ---------------------------------------------------------------------------
 
-SINGLE_COLS = ["id", "type", "grade", "score", "closeness", "prompt", "chatbot_response", "reasoning"]
+SINGLE_COLS = [
+    "id",
+    "type",
+    "grade",
+    "score",
+    "closeness",
+    "prompt",
+    "chatbot_response",
+    "reasoning",
+]
 
 
 def single_turn_row(sample: dict) -> dict:
@@ -141,15 +185,30 @@ def single_turn_row(sample: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 ITER_COLS = [
-    "sample_id", "type", "iteration", "grade", "score", "closeness",
-    "prompt", "chatbot_response", "reasoning",
-    "next_technique", "next_explanation", "next_prompt",
+    "sample_id",
+    "type",
+    "iteration",
+    "grade",
+    "score",
+    "closeness",
+    "prompt",
+    "chatbot_response",
+    "reasoning",
+    "next_technique",
+    "next_explanation",
+    "next_prompt",
 ]
 
 SUMMARY_COLS = [
-    "sample_id", "type", "seed_prompt",
-    "final_grade", "score", "bypass_iteration",
-    "best_closeness", "total_iterations", "explanation",
+    "sample_id",
+    "type",
+    "seed_prompt",
+    "final_grade",
+    "score",
+    "bypass_iteration",
+    "best_closeness",
+    "total_iterations",
+    "explanation",
 ]
 
 
@@ -163,22 +222,28 @@ def refinement_rows(sample: dict):
 
     iter_rows = []
     for entry in lineage:
-        iter_rows.append({
-            "sample_id": sample_id,
-            "type": sample_type,
-            "iteration": entry.get("iteration", ""),
-            "grade": entry.get("grade_label", ""),
-            "score": entry.get("score", ""),
-            "closeness": entry.get("closeness", ""),
-            "prompt": entry.get("prompt", ""),
-            "chatbot_response": entry.get("response", ""),
-            "reasoning": entry.get("judge_reasoning", ""),
-            "next_technique": entry.get("next_refiner_technique", ""),
-            "next_explanation": entry.get("next_refiner_explanation", ""),
-            "next_prompt": entry.get("next_refiner_prompt", ""),
-        })
+        iter_rows.append(
+            {
+                "sample_id": sample_id,
+                "type": sample_type,
+                "iteration": entry.get("iteration", ""),
+                "grade": entry.get("grade_label", ""),
+                "score": entry.get("score", ""),
+                "closeness": entry.get("closeness", ""),
+                "prompt": entry.get("prompt", ""),
+                "chatbot_response": entry.get("response", ""),
+                "reasoning": entry.get("judge_reasoning", ""),
+                "next_technique": entry.get("next_refiner_technique", ""),
+                "next_explanation": entry.get("next_refiner_explanation", ""),
+                "next_prompt": entry.get("next_refiner_prompt", ""),
+            }
+        )
 
-    seed_prompt = lineage[0].get("prompt", "") if lineage else extract_prompt(sample.get("input", []))
+    seed_prompt = (
+        lineage[0].get("prompt", "")
+        if lineage
+        else extract_prompt(sample.get("input", []))
+    )
     summary_row = {
         "sample_id": sample_id,
         "type": sample_type,
@@ -194,8 +259,107 @@ def refinement_rows(sample: dict):
 
 
 # ---------------------------------------------------------------------------
+# Multi-turn
+# ---------------------------------------------------------------------------
+
+ROUND_COLS = [
+    "sample_id",
+    "type",
+    "round",
+    "phase",
+    "techniques",
+    "move",
+    "move_reasoning",
+    "prompt",
+    "chatbot_response",
+    "progress",
+    "grade",
+    "score",
+    "closeness",
+    "reasoning",
+    "validation_errors",
+]
+
+MULTI_TURN_SUMMARY_COLS = [
+    "sample_id",
+    "type",
+    "seed_prompt",
+    "final_grade",
+    "score",
+    "bypass_round",
+    "best_closeness",
+    "total_rounds",
+    "explanation",
+]
+
+
+def multi_turn_rows(sample: dict):
+    sample_id = sample.get("id", "")
+    sample_type = (sample.get("metadata") or {}).get("type", "")
+    lineage = (sample.get("metadata") or {}).get("lineage", [])
+
+    scorer_data = (sample.get("scores") or {}).get("multi_turn_scorer", {})
+    scorer_meta = scorer_data.get("metadata") or {}
+
+    round_rows = []
+    for entry in lineage:
+        # `next_move` is deliberately not exported: the solver assigns it as the
+        # following round's `current_move`, so its phase/techniques/move are the
+        # same values the next row already carries.
+        round_rows.append(
+            {
+                "sample_id": sample_id,
+                "type": sample_type,
+                "round": entry.get("round", ""),
+                # phase is one of open/elaborate/converge and always populated;
+                # techniques is a self-reported "+"-joined multi-label covering both
+                # the phase move and the wording — split on "+" to count them.
+                "phase": entry.get("phase", ""),
+                "techniques": entry.get("techniques", ""),
+                "move": entry.get("move", ""),
+                "progress": entry.get("progress", ""),
+                "grade": entry.get("grade_label", ""),
+                "score": entry.get("score", ""),
+                "closeness": entry.get("closeness", ""),
+                "prompt": entry.get("prompt", ""),
+                "chatbot_response": entry.get("response", ""),
+                "reasoning": entry.get("judge_reasoning", ""),
+                "move_reasoning": entry.get("move_reasoning", ""),
+                "validation_errors": "; ".join(entry.get("validation_errors") or []),
+            }
+        )
+
+    # Take the seed from the sample input, NOT from lineage[0] — the two differ in
+    # Mode 3. A jailbreak's round 1 is already the attacker's opener (multi_turn.py
+    # routes it through refine_prompt_in_context before sending), so lineage[0] is
+    # a generated prompt, not the dataset row. Benign samples are sent verbatim, so
+    # there the two agree — which is what made this easy to miss. Mode 2 is the
+    # opposite case: iteration 1 IS the seed, so refinement_rows keeps using
+    # lineage[0]. The lineage fallback here only covers a sample with no input.
+    # Guard the empty case before extract_prompt: it str()s whatever it can't find
+    # a user message in, so an absent input would yield the literal "[]".
+    raw_input = sample.get("input")
+    seed_prompt = extract_prompt(raw_input) if raw_input else ""
+    if not seed_prompt and lineage:
+        seed_prompt = lineage[0].get("prompt", "")
+    summary_row = {
+        "sample_id": sample_id,
+        "type": sample_type,
+        "seed_prompt": seed_prompt,
+        "final_grade": scorer_meta.get("grade_label", ""),
+        "score": scorer_data.get("value", ""),
+        "bypass_round": scorer_meta.get("bypass_round", ""),
+        "best_closeness": scorer_meta.get("best_closeness", ""),
+        "total_rounds": scorer_meta.get("total_rounds", ""),
+        "explanation": scorer_data.get("explanation", ""),
+    }
+    return round_rows, summary_row
+
+
+# ---------------------------------------------------------------------------
 # Write + convert
 # ---------------------------------------------------------------------------
+
 
 def write_csv(path: Path, columns: list, rows: list) -> None:
     with path.open("w", newline="", encoding="utf-8") as f:
@@ -221,7 +385,38 @@ def convert(input_path: Path, output_path: Path) -> None:
         grades = {}
         for r in rows:
             grades[r["grade"]] = grades.get(r["grade"], 0) + 1
-        print("Grade breakdown:", ", ".join(f"{k}: {v}" for k, v in sorted(grades.items())))
+        print(
+            "Grade breakdown:",
+            ", ".join(f"{k}: {v}" for k, v in sorted(grades.items())),
+        )
+
+    elif mode == "multi_turn":
+        all_round_rows, all_summary_rows = [], []
+        for s in samples:
+            round_rows, summary_row = multi_turn_rows(s)
+            all_round_rows.extend(round_rows)
+            all_summary_rows.append(summary_row)
+
+        rounds_path = output_path.with_stem(output_path.stem + "_rounds")
+        summary_path = output_path.with_stem(output_path.stem + "_summary")
+
+        write_csv(rounds_path, ROUND_COLS, all_round_rows)
+        write_csv(summary_path, MULTI_TURN_SUMMARY_COLS, all_summary_rows)
+
+        print(f"[multi-turn] Wrote {len(all_round_rows)} round rows -> {rounds_path}")
+        print(
+            f"[multi-turn] Wrote {len(all_summary_rows)} summary rows -> {summary_path}"
+        )
+
+        grades = {}
+        for r in all_summary_rows:
+            grades[r["final_grade"]] = grades.get(r["final_grade"], 0) + 1
+        print(
+            "Final grade breakdown:",
+            ", ".join(f"{k}: {v}" for k, v in sorted(grades.items())),
+        )
+        bypassed = sum(1 for r in all_summary_rows if r["final_grade"] == "bypassed")
+        print(f"Attack success rate: {bypassed}/{len(all_summary_rows)}")
 
     else:
         all_iter_rows, all_summary_rows = [], []
@@ -237,12 +432,17 @@ def convert(input_path: Path, output_path: Path) -> None:
         write_csv(summary_path, SUMMARY_COLS, all_summary_rows)
 
         print(f"[refinement] Wrote {len(all_iter_rows)} iteration rows -> {iter_path}")
-        print(f"[refinement] Wrote {len(all_summary_rows)} summary rows  -> {summary_path}")
+        print(
+            f"[refinement] Wrote {len(all_summary_rows)} summary rows  -> {summary_path}"
+        )
 
         grades = {}
         for r in all_summary_rows:
             grades[r["final_grade"]] = grades.get(r["final_grade"], 0) + 1
-        print("Final grade breakdown:", ", ".join(f"{k}: {v}" for k, v in sorted(grades.items())))
+        print(
+            "Final grade breakdown:",
+            ", ".join(f"{k}: {v}" for k, v in sorted(grades.items())),
+        )
         bypassed = sum(1 for r in all_summary_rows if r["final_grade"] == "bypassed")
         print(f"Attack success rate: {bypassed}/{len(all_summary_rows)}")
 

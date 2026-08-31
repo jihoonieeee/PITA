@@ -4,7 +4,6 @@ __pycache__/
 .vscode/
 
 # Project-generated Inspect datasets
-dataset/single_turn_converted.jsonl
-dataset/refinement_converted.jsonl
+dataset/*.jsonl
 
 /logs

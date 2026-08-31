@@ -76,7 +76,7 @@ def select_dataset() -> list[str]:
     print("You can enter multiple datasets (comma-separated or one per line)")
     print("Supports both CSV and JSON formats")
     print("\nExamples:")
-    print("  Single CSV: dataset/Dataset_walledai_520.csv")
+    print("  Single CSV: dataset/Dataset_advbench_520.csv")
     print("  Single JSON: dataset/jailbreak_data.json")
     print("  Multiple (comma): dataset/Dataset_1.csv, dataset/Dataset_2.json")
     print("  Multiple (lines): Enter each path and type 'done' when finished")

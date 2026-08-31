@@ -213,7 +213,7 @@ def refinement_jailbreak_detection(
 
     Args:
         dataset_path: Path to jailbreak dataset (CSV or JSON).
-                     Defaults to Dataset_walledai_520.csv
+                     Defaults to Dataset_advbench_520.csv
         scorer_model: Model to use for judging responses. Defaults to anthropic/claude-sonnet-5
         adversary_model: Model to use for prompt mutation. Falls back to the
                       ADVERSARY_MODEL env var (or legacy REFINER_MODEL) if not provided.
@@ -226,7 +226,7 @@ def refinement_jailbreak_detection(
     if dataset_path is None:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         dataset_path = os.path.join(
-            script_dir, "..", "dataset", "Dataset_walledai_520.csv"
+            script_dir, "..", "dataset", "Dataset_advbench_520.csv"
         )
 
     if scorer_model is None:

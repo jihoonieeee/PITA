@@ -15,6 +15,8 @@ Place any CSV or JSON dataset you want to test in `dataset/`. The runners accept
 Sources:
 
 - https://huggingface.co/datasets/walledai/AdvBench
+- https://huggingface.co/datasets/walledai/HarmBench
+- https://huggingface.co/datasets/JailbreakBench/JBB-Behaviors
 - https://huggingface.co/datasets/rogue-security/prompt-injections-benchmark
 - https://huggingface.co/datasets/yanismiraoui/prompt_injections/tree/main
 - https://github.com/aiverify-foundation/moonshot-data/blob/main/datasets/prompt_injection_jailbreak.json
@@ -70,13 +72,13 @@ The detector saves the chatbot config to `selectors.json`. After that, the chatb
 Interactive mode:
 
 ```powershell
-python run_interactive.py
+python run_singleturn.py
 ```
 
 Non-interactive mode:
 
 ```powershell
-python run_interactive.py `
+python run_singleturn.py `
   --chatbot-config chatbot-name `
   --dataset dataset/your_dataset.csv `
   --scorer-model anthropic/claude-sonnet-5 `
@@ -97,6 +99,7 @@ python run_refinement.py
 ```
 
 Non-interactive mode:
+
 ```powershell
 python run_refinement.py `
   --chatbot-config chatbot-name `
@@ -108,9 +111,36 @@ python run_refinement.py `
   --non-interactive
 ```
 
+Each iteration runs in a **fresh chat** — the target never sees the previous attempt.
+
+### 4. Run Multi-Turn Tests
+
+Use `run_multiturn.py` when you want the attacker to escalate **inside one conversation** the chatbot still remembers, instead of retrying from scratch.
+
+Interactive mode:
+
+```powershell
+python run_multiturn.py
+```
+
+Non-interactive mode:
+
+```powershell
+python run_multiturn.py `
+  --chatbot-config chatbot-name `
+  --dataset dataset/your_dataset.csv `
+  --scorer-model anthropic/claude-haiku-4-5 `
+  --adversary-model anthropic/claude-sonnet-5 `
+  --max-rounds 10 `
+  --limit 10 `
+  --non-interactive
+```
+
+The chat resets only at round 1 of each sample; rounds 2..N append to the same live conversation.
+
 ## CLI Reference
 
-### `run_interactive.py`
+### `run_singleturn.py`
 
 ```text
 --chatbot-config CONFIG      Chatbot config name from selectors.json
@@ -130,22 +160,37 @@ python run_refinement.py `
 --adversary-model MODEL      Model used to generate adversarial prompts
 --max-iterations N           Max refinement rounds per seed prompt; default 5
 --limit LIMIT                Max samples to evaluate; default 10, use 0 for all
---context TEXT               Description of the target chatbot's purpose and domain,
-                             used by the adversary model; or set CHATBOT_CONTEXT
+--context TEXT               Target chatbot's purpose/domain, for the adversary
+--non-interactive            Run without interactive prompts
+-h, --help                   Show help
+```
+
+### `run_multiturn.py`
+
+```text
+--chatbot-config CONFIG      Chatbot config name from selectors.json
+--dataset DATASET            Path to CSV or JSON dataset; comma-separate multiple files
+--scorer-model MODEL         Model used to judge each round; default anthropic/claude-haiku-4-5
+--adversary-model MODEL      Model used for in-conversation strategy and phrasing
+--max-rounds N               Max in-conversation rounds per seed prompt; default 10
+--limit LIMIT                Max samples to evaluate; default 10, use 0 for all
+--context TEXT               Target chatbot's purpose/domain, for the adversary
 --non-interactive            Run without interactive prompts
 -h, --help                   Show help
 ```
 
 ## Resetting Between Prompts
 
-Both `run_interactive.py` and `run_refinement.py` **always** reset the chat before every prompt, so each prompt is evaluated in isolation with no carried-over conversation context. The runtime clicks a configured reset/new-chat button from `selectors.json` if available; otherwise it reloads the page before each prompt.
+Both `run_singleturn.py` and `run_refinement.py` **always** reset the chat before every prompt, so each prompt is evaluated in isolation with no carried-over conversation context. The runtime clicks a configured reset/new-chat button from `selectors.json` if available; otherwise it reloads the page before each prompt.
+
+`run_multiturn.py` is the exception, by design: it resets only at round 1 of each sample and then keeps the conversation open, because escalating against a target that remembers the previous turns is the whole point of the mode. Do not set `RESET_BETWEEN_PROMPTS` by hand for multi-turn runs — the task toggles it itself.
 
 ## Model Selection
 
 Common scorer models:
 
-- `anthropic/claude-haiku-4-5` 
-- `anthropic/claude-sonnet-5` 
+- `anthropic/claude-haiku-4-5`
+- `anthropic/claude-sonnet-5`
 - `anthropic/claude-opus-4-8`
 
 Common adversary models:
@@ -158,7 +203,7 @@ Common adversary models:
 
 ## Judge Fallback on Content Filter
 
-Sometimes the scorer model itself refuses to grade a response — not because the *chatbot under test* said anything unsafe, but because classifying a response that fully discloses a secret (e.g. via an acrostic or other encoding) trips the judge's own safety filter. When this happens, `judge_response()` (`utils/scorer.py`) retries once with a clarifying note, and if that still comes back empty with `stop_reason: content_filter`, it falls back to a local model via Ollama — `LOCAL_JUDGE_MODEL` (default `ollama/qwen2.5:14b`) — to grade the same input instead of marking the sample as an unscored `judge_error`.
+Sometimes the scorer model itself refuses to grade a response — not because the _chatbot under test_ said anything unsafe, but because classifying a response that fully discloses a secret (e.g. via an acrostic or other encoding) trips the judge's own safety filter. When this happens, `judge_response()` (`utils/scorer.py`) retries once with a clarifying note, and if that still comes back empty with `stop_reason: content_filter`, it falls back to a local model via Ollama — `LOCAL_JUDGE_MODEL` (default `ollama/qwen2.5:14b`) — to grade the same input instead of marking the sample as an unscored `judge_error`.
 
 This requires Ollama running locally with the model pulled:
 
@@ -227,7 +272,7 @@ Supported field names are case-insensitive:
 Merge multiple datasets into one evaluation by comma-separating paths:
 
 ```powershell
-python run_interactive.py `
+python run_singleturn.py `
   --chatbot-config chatbot-name `
   --dataset "dataset/your_dataset.csv,dataset/another_dataset.json" `
   --scorer-model anthropic/claude-sonnet-5 `
@@ -242,7 +287,7 @@ Use `--limit` to control how many samples run:
 
 ```powershell
 # Run 50 samples
-python run_interactive.py `
+python run_singleturn.py `
   --chatbot-config chatbot-name `
   --dataset dataset/your_dataset.csv `
   --scorer-model anthropic/claude-sonnet-5 `
@@ -250,7 +295,7 @@ python run_interactive.py `
   --non-interactive
 
 # Run all samples
-python run_interactive.py `
+python run_singleturn.py `
   --chatbot-config chatbot-name `
   --dataset dataset/your_dataset.csv `
   --scorer-model anthropic/claude-sonnet-5 `
@@ -297,11 +342,20 @@ The script auto-detects the evaluation mode from the log:
 - **Single-turn**: writes one CSV with one row per sample.
 
   Columns: `id`, `type`, `grade`, `score`, `closeness`, `prompt`, `chatbot_response`, `reasoning`
+
 - **Refinement**: writes two CSVs — `*_iterations.csv` (one row per attempt) and `*_summary.csv` (one row per seed prompt).
 
   Iteration columns: `sample_id`, `type`, `iteration`, `grade`, `score`, `closeness`, `prompt`, `chatbot_response`, `reasoning`, `next_technique`, `next_explanation`, `next_prompt`
 
   Summary columns: `sample_id`, `type`, `seed_prompt`, `final_grade`, `score`, `bypass_iteration`, `best_closeness`, `total_iterations`, `explanation`
+
+- **Multi-turn**: writes two CSVs — `*_rounds.csv` (one row per in-conversation round) and `*_summary.csv` (one row per seed prompt).
+
+  Round columns: `sample_id`, `type`, `round`, `phase`, `techniques`, `move`, `move_reasoning`, `prompt`, `chatbot_response`, `progress`, `grade`, `score`, `closeness`, `reasoning`, `validation_errors`
+
+  Summary columns: `sample_id`, `type`, `seed_prompt`, `final_grade`, `score`, `bypass_round`, `best_closeness`, `total_rounds`, `explanation`
+
+  `techniques` is a `+`-joined multi-label (split on `+` to count individual techniques), `phase` is one of `open`/`elaborate`/`converge`, and `validation_errors` is non-empty only when the attacker's own output failed validation and a deterministic fallback prompt was substituted for that round — it lists the specific failures followed by `used deterministic fallback prompt after invalid attacker output`, and such rounds also carry a `fallback_*` label in `techniques`.
 
 If you pass a `.eval` file, the script runs `inspect log convert` automatically to produce the JSON first.
 
@@ -320,9 +374,10 @@ If you pass a `.eval` file, the script runs `inspect log convert` automatically 
    - Save validated selectors to selectors.json
 
 3. TEST
-   - Run run_interactive.py for single-turn evaluation
-   - Or run run_refinement.py for mutation-and-retry evaluation
-   - Choose dataset(s), scorer model, and sample limit (chat always resets between prompts)
+   - Run run_singleturn.py for single-turn evaluation
+   - Or run run_refinement.py for mutation-and-retry evaluation (fresh chat per attempt)
+   - Or run run_multiturn.py for in-conversation escalation (one chat per seed prompt)
+   - Choose dataset(s), scorer model, and sample limit
 
 4. ANALYZE
    - Review console output
@@ -332,13 +387,13 @@ If you pass a `.eval` file, the script runs `inspect log convert` automatically 
 
 ## Troubleshooting
 
-| Issue                               | Solution                                                                                                                  |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Issue                             | Solution                                                                                                                |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `No input fields found`           | Chatbot input might be inside an iframe or hidden until interaction. Run `/probe-chatbot` again with the input visible. |
 | `Selector not found`              | Re-detect selectors and confirm the config exists in `selectors.json`.                                                  |
-| `Timeout waiting for response`    | The chatbot may be slow, blocked, or not fully loaded. Try a smaller run and verify the UI manually.                      |
+| `Timeout waiting for response`    | The chatbot may be slow, blocked, or not fully loaded. Try a smaller run and verify the UI manually.                    |
 | `Browser not connected`           | Ensure Chrome is running with `--remote-debugging-port=9222`.                                                           |
-| `CHATBOT_CONFIG not found`        | Verify the config name in `selectors.json`, or pass `--chatbot-config`.                                               |
+| `CHATBOT_CONFIG not found`        | Verify the config name in `selectors.json`, or pass `--chatbot-config`.                                                 |
 | `ModuleNotFoundError: inspect_ai` | Activate the virtual environment and install `requirements.txt`.                                                        |
 
 ## Additional Resources
