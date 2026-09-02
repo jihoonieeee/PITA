@@ -34,10 +34,6 @@ def cdp_relay() -> Solver:
 
     return solve
 
-# Get config from environment variable (required)
-ACTIVE_CONFIG = os.environ.get("CHATBOT_CONFIG", "claude-docs")
-
-
 
 @task
 def single_turn_jailbreak_detection(
